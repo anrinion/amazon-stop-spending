@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Amazon Spending Brake
+// @name         ShoppingPad
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  Slows down impulse buying on Amazon. Accumulate, consider, decide.
-// @author       Assistant
+// @description  Slows down impulse buying. Accumulate, consider, decide.
+// @author       anrinion
 // @match        https://www.amazon.com/*
 // @match        https://www.amazon.de/*
 // @match        https://www.amazon.co.uk/*
@@ -130,119 +130,250 @@
     GM_addStyle(`
 @import url('https://fonts.googleapis.com/css2?family=Inter:400;500;600;700&display=swap');
 
-:root[data-ab-theme="light"]{
---page:#e4e4e9;--surface:#fff;--surface2:#f4f4f8;
---border:#dddde6;--text-hi:#111114;--text-mid:#70707a;
---text-lo:#b0b0bc;--accent:#0066cc;--accent-lo:#e6f0fd;
---danger:#c62828;--input:#fff;
---shadow:0 24px 60px rgba(0,0,0,.14),0 4px 12px rgba(0,0,0,.06);
-}
-:root[data-ab-theme="dark"]{
---page:#09090b;--surface:#18181b;--surface2:#27272a;
---border:#3f3f46;--text-hi:#fafafa;--text-mid:#a1a1aa;
---text-lo:#52525b;--accent:#60a5fa;--accent-lo:#172554;
---danger:#f87171;--input:#27272a;
---shadow:0 24px 60px rgba(0,0,0,.5),0 4px 12px rgba(0,0,0,.3);
-}
-
-#ab-overlay{
-position:fixed;inset:0;z-index:999999;
-background:var(--page);
-display:flex;align-items:center;justify-content:center;
-font-family:Inter,system-ui;
+:root[data-ab-theme="light"] {
+    --page: #e4e4e9;
+    --surface: #fff;
+    --surface2: #f4f4f8;
+    --border: #dddde6;
+    --text-hi: #111114;
+    --text-mid: #70707a;
+    --text-lo: #b0b0bc;
+    --accent: #0066cc;
+    --accent-lo: #e6f0fd;
+    --danger: #c62828;
+    --input: #fff;
+    --shadow: 0 24px 60px rgba(0, 0, 0, .14), 0 4px 12px rgba(0, 0, 0, .06);
 }
 
-.ab-card{
-width:100%;max-width:480px;
-background:var(--surface);
-border-radius:18px;
-box-shadow:var(--shadow);
-overflow:hidden;
+:root[data-ab-theme="dark"] {
+    --page: #09090b;
+    --surface: #18181b;
+    --surface2: #27272a;
+    --border: #3f3f46;
+    --text-hi: #fafafa;
+    --text-mid: #a1a1aa;
+    --text-lo: #52525b;
+    --accent: #60a5fa;
+    --accent-lo: #172554;
+    --danger: #f87171;
+    --input: #27272a;
+    --shadow: 0 24px 60px rgba(0, 0, 0, .5), 0 4px 12px rgba(0, 0, 0, .3);
 }
 
-.ab-top{
-display:flex;justify-content:space-between;
-padding:14px 20px;
-background:var(--surface2);
-border-bottom:1px solid var(--border);
+#ab-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: var(--page);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Inter, system-ui;
 }
 
-.ab-word{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-lo);}
-
-.ab-pill{
-padding:4px 12px;border-radius:999px;
-border:1px solid var(--border);
-cursor:pointer;background:var(--surface);
-color: var(--text-mid);
+.ab-card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--surface);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
 }
 
-.ab-body{padding:28px;}
-.ab-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--accent);}
-.ab-heading{font-size:28px;font-weight:700;margin:10px 0;color:var(--text-hi);}
-.ab-heading.blocked{color:var(--danger);}
-.ab-sub{font-size:14px;color:var(--text-mid);margin-bottom:20px;line-height:1.5;}
-
-.ab-chip{
-display:inline-flex;gap:8px;
-background:var(--accent-lo);
-padding:6px 14px;border-radius:999px;margin-bottom:20px;
-color: var(--text-mid);
-}
-.ab-chip b{color:var(--accent);}
-
-.ab-btn{
-width:100%;padding:12px;
-border-radius:10px;border:1px solid var(--border);
-background:transparent;cursor:pointer;margin-bottom:20px;
-color:var(--text-mid);
-}
-.ab-btn:hover{background:var(--surface2);border-color:var(--text-lo);color:var(--text-hi);}
-
-.ab-sec{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-lo);margin-bottom:8px;}
-
-.ab-list{display:flex;flex-direction:column;gap:6px;}
-.ab-item{
-display:flex;gap:8px;padding:8px;
-background:var(--surface2);
-border:1px solid var(--border);
-border-radius:10px;color:var(--text-hi);
-}
-.ab-item span:first-child{flex:1;}
-.ab-item .item-text { flex: 1; }
-.ab-item button{background:none;border:none;cursor:pointer;color:var(--text-lo);width:20px;height:20px;line-height:1;}
-.ab-item button:hover{color:var(--danger);}
-.ab-item.checked .item-text{text-decoration:line-through;color:var(--text-lo);}
-
-.ab-add{display:flex;gap:6px;margin-top:6px;}
-.ab-add input{
-flex:1;padding:10px;border-radius:8px;
-border:1px solid var(--border);background:var(--input);
-color:var(--text-hi);ouline:none;font-family:inherit;
-transition:border-color 0.15s, box-shadow 0.15s;
-}
-.ab-add input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-lo);}
-.ab-add button{
-padding:0 16px;border:none;border-radius:8px;
-background:var(--accent);color:#fff;cursor:pointer;
-font-weight:600;
+.ab-top {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
 }
 
-#ab-widget-icon{
-position:fixed;bottom:18px;right:18px;
-width:44px;height:44px;
-border-radius:14px;
-background:var(--surface);
-border:1px solid var(--border);
-box-shadow:var(--shadow);
-display:flex;align-items:center;justify-content:center;
-cursor:pointer;z-index:999999;
-color:var(--text-mid);
-font-size:18px;
+.ab-word {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-lo);
 }
 
-#ab-widget-panel{
-position:fixed;bottom:72px;right:18px;
-width:320px;display:none;z-index:999999;
+.ab-pill {
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    background: var(--surface);
+    color: var(--text-mid);
+}
+
+.ab-body {
+    padding: 28px;
+}
+
+.ab-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.ab-heading {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 10px 0;
+    color: var(--text-hi);
+}
+
+.ab-heading.blocked {
+    color: var(--danger);
+}
+
+.ab-sub {
+    font-size: 14px;
+    color: var(--text-mid);
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.ab-chip {
+    display: inline-flex;
+    gap: 8px;
+    background: var(--accent-lo);
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 20px;
+    color: var(--text-mid);
+}
+
+.ab-chip b {
+    color: var(--accent);
+}
+
+.ab-btn {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    margin-bottom: 20px;
+    color: var(--text-mid);
+}
+
+.ab-btn:hover {
+    background: var(--surface2);
+    border-color: var(--text-lo);
+    color: var(--text-hi);
+}
+
+.ab-sec {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-lo);
+    margin-bottom: 8px;
+}
+
+.ab-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ab-item {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-hi);
+}
+
+.ab-item span:first-child {
+    flex: 1;
+}
+
+.ab-item .item-text {
+    flex: 1;
+}
+
+.ab-item button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-lo);
+    width: 20px;
+    height: 20px;
+    line-height: 1;
+}
+
+.ab-item button:hover {
+    color: var(--danger);
+}
+
+.ab-item.checked .item-text {
+    text-decoration: line-through;
+    color: var(--text-lo);
+}
+
+.ab-add {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.ab-add input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--input);
+    color: var(--text-hi);
+    ouline: none;
+    font-family: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ab-add input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-lo);
+}
+
+.ab-add button {
+    padding: 0 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+#ab-widget-icon {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 999999;
+    color: var(--text-mid);
+    font-size: 18px;
+}
+
+#ab-widget-panel {
+    position: fixed;
+    bottom: 72px;
+    right: 18px;
+    width: 320px;
+    display: none;
+    z-index: 999999;
 }
 `);
 
@@ -254,7 +385,7 @@ width:320px;display:none;z-index:999999;
         const top = document.createElement('div');
         top.className = 'ab-top';
         top.innerHTML = `
-<span class="ab-word">Spending Brake</span>
+<span class="ab-word">ShoppingPad</span>
 <button class="ab-pill">${getTheme() === 'light' ? '☽ Dark' : '☀ Light'}</button>
 `;
 
@@ -263,22 +394,22 @@ width:320px;display:none;z-index:999999;
 
         if (!compact) {
             body.innerHTML += `
-<div class="ab-eyebrow">${blocked ? 'Access restricted' : 'Checkpoint'}</div>
-<div class="ab-heading ${blocked ? 'blocked' : ''}">
-${blocked ? 'Limit reached.' : 'Before you browse…'}
-</div>
-<div class="ab-sub">
-${blocked
-    ? `You've used all ${getMax()} sessions this week. Come back on Monday, or add things to your list below in the meantime.` 
-    : `Do you actually need something right now? Each session counts. You have ${getRemaining()} of ${getMax()} left this week. Check your list first — maybe it's already there.`}
-</div>
-<div class="ab-chip">
-<span>${blocked ? 'Resets' : 'Sessions'}</span>
-<b>${blocked ? daysUntilMonday() + ' days' : getRemaining() + '/' + getMax()}</b>
-</div>
-${!blocked ? '<button class="ab-btn">Yes, I need something — use a session</button>' : ''}
-<div class="ab-sec">${blocked ? 'Add for later' : 'Shopping list'}</div>
-`;
+        <div class="ab-eyebrow">${blocked ? 'Access restricted' : 'Checkpoint'}</div>
+        <div class="ab-heading ${blocked ? 'blocked' : ''}">
+        ${blocked ? 'Done for the week.' : 'Start a shopping session?'}
+        </div>
+        <div class="ab-sub">
+        ${blocked
+                    ? `You've used your ${getMax()} shopping sessions this week. You can still put things down here and buy them when your sessions reset.`
+                    : `You have ${getRemaining()} sessions left this week. You can browse now, or just leave items on the pad to buy everything at once later.`}
+        </div>
+        <div class="ab-chip">
+        <span>${blocked ? 'Resets in' : 'Sessions left'}</span>
+        <b>${blocked ? daysUntilMonday() + ' days' : getRemaining() + ' of ' + getMax()}</b>
+        </div>
+        ${!blocked ? '<button class="ab-btn">Start 1-hour session</button>' : ''}
+        <div class="ab-sec">Your pad</div>
+        `;
         } else {
             body.innerHTML += `<div class="ab-sec">Shopping list</div>`;
         }
@@ -339,7 +470,7 @@ ${checkboxHtml}
                     const cb = row.querySelector('.ab-checkbox');
                     cb.addEventListener('change', () => {
                         toggleItemCheck(i); // Save state to localStorage
-                        if(cb.checked) row.classList.add('checked');
+                        if (cb.checked) row.classList.add('checked');
                         else row.classList.remove('checked');
                     });
                 }
