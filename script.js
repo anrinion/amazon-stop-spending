@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ShoppingPad
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.2
 // @description  Slows down impulse buying. Accumulate, consider, decide.
 // @author       anrinion
 // @match        https://www.amazon.com/*
@@ -115,7 +115,9 @@
     /* ───────── THEME ───────── */
     const getTheme = () => localStorage.getItem(SK.THEME) || 'light';
     const setTheme = t => localStorage.setItem(SK.THEME, t);
-    function applyTheme() { document.documentElement.setAttribute('data-ab-theme', getTheme()); }
+    function applyTheme() { 
+        document.documentElement.setAttribute('data-ab-theme', getTheme()); 
+    }
 
     function toggleTheme() {
         const next = getTheme() === 'light' ? 'dark' : 'light';
@@ -124,11 +126,20 @@
         document.querySelectorAll('.ab-pill').forEach(btn => {
             btn.textContent = next === 'light' ? '☽ Dark' : '☀ Light';
         });
+        // Update any existing inputs to reflect new background
+        document.querySelectorAll('.ab-add input').forEach(input => {
+            input.style.backgroundColor = 'var(--input)';
+        });
     }
 
     /* ───────── CSS ───────── */
     GM_addStyle(`
 @import url('https://fonts.googleapis.com/css2?family=Inter:400;500;600;700&display=swap');
+
+/* Hide body until overlay is ready – prevents flicker */
+body.ab-hide-content {
+    visibility: hidden !important;
+}
 
 :root[data-ab-theme="light"] {
     --page: #e4e4e9;
@@ -141,7 +152,7 @@
     --accent: #0066cc;
     --accent-lo: #e6f0fd;
     --danger: #c62828;
-    --input: #fff;
+    --input: #ffffff;
     --shadow: 0 24px 60px rgba(0, 0, 0, .14), 0 4px 12px rgba(0, 0, 0, .06);
 }
 
@@ -328,7 +339,7 @@
     border: 1px solid var(--border);
     background: var(--input);
     color: var(--text-hi);
-    ouline: none;
+    outline: none;
     font-family: inherit;
     transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -415,26 +426,39 @@
         }
 
         const listWrap = document.createElement('div');
-        buildList(listWrap, compact);
+        const inputElement = buildList(listWrap, compact);
         body.appendChild(listWrap);
 
         card.append(top, body);
 
-        top.querySelector('button').onclick = toggleTheme;
+        const themeBtn = top.querySelector('button');
+        themeBtn.onclick = (e) => {
+            e.preventDefault();
+            toggleTheme();
+        };
 
         if (!blocked && !compact) {
-            body.querySelector('.ab-btn').onclick = () => {
-                consume();
-                startSession(); // Start the timer-based session
-                document.getElementById('ab-overlay')?.remove();
-                createWidget();
-            };
+            const startBtn = body.querySelector('.ab-btn');
+            if (startBtn) {
+                startBtn.onclick = () => {
+                    consume();
+                    startSession();
+                    document.getElementById('ab-overlay')?.remove();
+                    createWidget();
+                };
+            }
+        }
+
+        // For compact view, focus the input if present
+        if (compact && inputElement) {
+            setTimeout(() => inputElement.focus(), 0);
         }
 
         return card;
     }
 
     /* ───────── LIST BUILDER ───────── */
+    // Returns the input element so that it can be focused later
     function buildList(container, compact = false) {
         container.innerHTML = '';
         const list = getList();
@@ -449,7 +473,6 @@
                 const row = document.createElement('div');
                 row.className = 'ab-item';
 
-                // Restore checked state from storage
                 if (item.checked) {
                     row.classList.add('checked');
                 }
@@ -461,7 +484,7 @@
 
                 row.innerHTML = `
 ${checkboxHtml}
-<span class="item-text">${item.text}</span>
+<span class="item-text">${escapeHtml(item.text)}</span>
 <span style="font-size:11px;color:var(--text-lo)">${fmtDate(item.added)}</span>
 <button>×</button>
 `;
@@ -469,14 +492,15 @@ ${checkboxHtml}
                 if (compact) {
                     const cb = row.querySelector('.ab-checkbox');
                     cb.addEventListener('change', () => {
-                        toggleItemCheck(i); // Save state to localStorage
+                        toggleItemCheck(i);
                         if (cb.checked) row.classList.add('checked');
                         else row.classList.remove('checked');
                     });
                 }
 
                 row.querySelector('button').onclick = () => {
-                    removeItem(i); buildList(container, compact);
+                    removeItem(i);
+                    buildList(container, compact);
                 };
                 wrap.appendChild(row);
             });
@@ -490,6 +514,7 @@ ${checkboxHtml}
         const input = document.createElement('input');
         input.type = 'text';
         input.placeholder = 'Add to list…';
+        input.style.backgroundColor = 'var(--input)';
 
         const btn = document.createElement('button');
         btn.textContent = 'Add';
@@ -497,27 +522,60 @@ ${checkboxHtml}
         const handleAdd = () => {
             if (addItem(input.value)) {
                 input.value = '';
-                input.focus();
-                buildList(container, compact);
+                // Rebuild the list, and then focus the new input
+                const newInput = buildList(container, compact);
+                if (newInput) {
+                    newInput.focus();
+                }
             }
         };
 
-        btn.onclick = handleAdd;
+        btn.onclick = (e) => {
+            e.preventDefault();
+            handleAdd();
+        };
 
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') handleAdd();
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAdd();
+            }
         });
 
         add.append(input, btn);
         container.appendChild(add);
+        
+        return input; // Return input so caller can focus if needed
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     /* ───────── OVERLAY ───────── */
     function showOverlay(blocked) {
+        // Remove any existing overlay
+        const existingOverlay = document.getElementById('ab-overlay');
+        if (existingOverlay) {
+            existingOverlay.remove();
+        }
+        
         const o = document.createElement('div');
         o.id = 'ab-overlay';
         o.appendChild(buildCard(blocked, false));
+        
+        // Hide body content before adding overlay (prevent flicker)
+        document.body.classList.add('ab-hide-content');
+        
         document.body.appendChild(o);
+        
+        // Force a reflow to ensure overlay is rendered before showing body
+        o.offsetHeight;
+        
+        // Remove the hiding class after overlay is in place
+        document.body.classList.remove('ab-hide-content');
     }
 
     /* ───────── WIDGET ───────── */
@@ -565,6 +623,20 @@ ${checkboxHtml}
         }
     }
 
-    document.addEventListener('DOMContentLoaded', run);
-
+    // Apply hide-body style as early as possible to prevent flicker
+    const style = document.createElement('style');
+    style.textContent = `body { visibility: hidden !important; }`;
+    document.documentElement.appendChild(style);
+    
+    // Wait for DOM ready to run the main logic and then remove the hiding style
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            // Remove the early style and then run
+            style.remove();
+            run();
+        });
+    } else {
+        style.remove();
+        run();
+    }
 })();
