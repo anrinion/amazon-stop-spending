@@ -28,6 +28,7 @@
 // @match        https://www.amazon.co.za/*
 // @grant        GM_addStyle
 // @run-at       document-start
+// @license      MIT 
 // ==/UserScript==
 
 (function () {

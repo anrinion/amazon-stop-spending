@@ -15,7 +15,7 @@ A simple notepad overlay for shopping sites. Instead of buying items one by one 
 ## Installation
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension for your browser.
-2. Install the script by paste the code into a new Tampermonkey script.
+2. Install the script from [GreasyFork](https://greasyfork.org/en/scripts/571851-shoppingpad).
 
 ### Customizing for other sites
 The script is currently set up to run on Amazon, but the code is entirely generic. You can use it on eBay, grocery sites, or anywhere else you shop.
