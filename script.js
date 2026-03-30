@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ShoppingPad
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Slows down impulse buying. Accumulate, consider, decide.
 // @author       anrinion
 // @match        https://www.amazon.com/*
@@ -33,11 +33,11 @@
 (function () {
     'use strict';
 
-    /* ───────── CONFIG ───────── */
+    /* ---------- CONFIG ---------- */
     const DEFAULT_MAX_VISITS = 3;
     const SESSION_DURATION = 3600000; // 1 hour in milliseconds
 
-    /* ───────── STORAGE ───────── */
+    /* ---------- STORAGE ---------- */
     const SK = {
         COUNT: 'ab_visit_count',
         WEEK: 'ab_week_number',
@@ -47,33 +47,43 @@
         SESSION_START: 'ab_session_start'
     };
 
-    /* ───────── WEEK ───────── */
+    /* ---------- WEEK ---------- */
+    // Returns the ISO date of the current week's Monday (e.g., "2026-03-30")
     function getWeekKey() {
         const now = new Date();
-        const mon = new Date(now);
-        mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-        mon.setHours(0, 0, 0, 0);
-        const y = mon.getFullYear();
-        const jan1 = new Date(y, 0, 1);
-        jan1.setDate(1 - (jan1.getDay() + 6) % 7);
-        return `${y}-W${Math.floor((mon - jan1) / 6048e5) + 1}`;
-    }
-    function resetIfNewWeek() {
-        const cur = getWeekKey();
-        if (localStorage.getItem(SK.WEEK) !== cur) {
-            localStorage.setItem(SK.COUNT, '0');
-            localStorage.setItem(SK.WEEK, cur);
-        }
-    }
-    function daysUntilMonday() {
-        const now = new Date();
-        const next = new Date(now);
-        next.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7));
-        next.setHours(0, 0, 0, 0);
-        return Math.ceil((next - now) / 864e5);
+        const day = now.getDay();
+
+        // Days back to Monday: Sun(0)->6, Mon(1)->0, Tue(2)->1, ..., Sat(6)->5
+        const diff = (day + 6) % 7;
+
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - diff);
+        monday.setHours(0, 0, 0, 0);
+
+        return monday.toISOString().split('T')[0];
     }
 
-    /* ───────── STATE ───────── */
+    function resetIfNewWeek() {
+        try {
+            const cur = getWeekKey();
+            if (localStorage.getItem(SK.WEEK) !== cur) {
+                localStorage.setItem(SK.COUNT, '0');
+                localStorage.setItem(SK.WEEK, cur);
+            }
+        } catch (e) {
+            console.error('Storage error', e);
+        }
+    }
+
+    // Returns days until next Monday (1-7)
+    function daysUntilMonday() {
+        const day = new Date().getDay();
+        // (8 - day) % 7 results: Sun(0)->1, Mon(1)->0, ..., Sat(6)->2
+        // || 7 converts the 0 (Monday) to 7
+        return (8 - day) % 7 || 7;
+    }
+
+    /* ---------- STATE ---------- */
     const getMax = () => parseInt(localStorage.getItem(SK.MAX) || DEFAULT_MAX_VISITS, 10);
     const setMax = n => localStorage.setItem(SK.MAX, n);
     const getCount = () => parseInt(localStorage.getItem(SK.COUNT) || '0', 10);
@@ -81,7 +91,7 @@
     const isBlocked = () => getRemaining() === 0;
     const consume = () => localStorage.setItem(SK.COUNT, getCount() + 1);
 
-    /* ───────── SESSION ───────── */
+    /* ---------- SESSION ---------- */
     function startSession() {
         localStorage.setItem(SK.SESSION_START, Date.now().toString());
     }
@@ -92,7 +102,7 @@
         return (now - parseInt(start, 10)) < SESSION_DURATION;
     }
 
-    /* ───────── LIST ───────── */
+    /* ---------- LIST ---------- */
     const getList = () => JSON.parse(localStorage.getItem(SK.LIST) || '[]');
     const saveList = l => localStorage.setItem(SK.LIST, JSON.stringify(l));
     function addItem(text) {
@@ -112,11 +122,11 @@
     }
     const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 
-    /* ───────── THEME ───────── */
+    /* ---------- THEME ---------- */
     const getTheme = () => localStorage.getItem(SK.THEME) || 'light';
     const setTheme = t => localStorage.setItem(SK.THEME, t);
-    function applyTheme() { 
-        document.documentElement.setAttribute('data-ab-theme', getTheme()); 
+    function applyTheme() {
+        document.documentElement.setAttribute('data-ab-theme', getTheme());
     }
 
     function toggleTheme() {
@@ -132,7 +142,7 @@
         });
     }
 
-    /* ───────── CSS ───────── */
+    /* ---------- CSS ---------- */
     GM_addStyle(`
 @import url('https://fonts.googleapis.com/css2?family=Inter:400;500;600;700&display=swap');
 
@@ -388,7 +398,7 @@ body.ab-hide-content {
 }
 `);
 
-    /* ───────── SHARED CARD BUILDER ───────── */
+    /* ---------- SHARED CARD BUILDER ---------- */
     function buildCard(blocked, compact = false) {
         const card = document.createElement('div');
         card.className = 'ab-card';
@@ -457,7 +467,7 @@ body.ab-hide-content {
         return card;
     }
 
-    /* ───────── LIST BUILDER ───────── */
+    /* ---------- LIST BUILDER ---------- */
     // Returns the input element so that it can be focused later
     function buildList(container, compact = false) {
         container.innerHTML = '';
@@ -522,7 +532,7 @@ ${checkboxHtml}
         const handleAdd = () => {
             if (addItem(input.value)) {
                 input.value = '';
-                // Rebuild the list, and then focus the new input
+                // Rebuild the list, then focus the new input
                 const newInput = buildList(container, compact);
                 if (newInput) {
                     newInput.focus();
@@ -544,7 +554,7 @@ ${checkboxHtml}
 
         add.append(input, btn);
         container.appendChild(add);
-        
+
         return input; // Return input so caller can focus if needed
     }
 
@@ -554,31 +564,31 @@ ${checkboxHtml}
         return div.innerHTML;
     }
 
-    /* ───────── OVERLAY ───────── */
+    /* ---------- OVERLAY ---------- */
     function showOverlay(blocked) {
         // Remove any existing overlay
         const existingOverlay = document.getElementById('ab-overlay');
         if (existingOverlay) {
             existingOverlay.remove();
         }
-        
+
         const o = document.createElement('div');
         o.id = 'ab-overlay';
         o.appendChild(buildCard(blocked, false));
-        
+
         // Hide body content before adding overlay (prevent flicker)
         document.body.classList.add('ab-hide-content');
-        
+
         document.body.appendChild(o);
-        
+
         // Force a reflow to ensure overlay is rendered before showing body
         o.offsetHeight;
-        
+
         // Remove the hiding class after overlay is in place
         document.body.classList.remove('ab-hide-content');
     }
 
-    /* ───────── WIDGET ───────── */
+    /* ---------- WIDGET ---------- */
     let panel;
 
     function createWidget() {
@@ -605,7 +615,7 @@ ${checkboxHtml}
         }
     }
 
-    /* ───────── INIT ───────── */
+    /* ---------- INIT ---------- */
     function run() {
         resetIfNewWeek();
         applyTheme();
@@ -627,11 +637,10 @@ ${checkboxHtml}
     const style = document.createElement('style');
     style.textContent = `body { visibility: hidden !important; }`;
     document.documentElement.appendChild(style);
-    
+
     // Wait for DOM ready to run the main logic and then remove the hiding style
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
-            // Remove the early style and then run
             style.remove();
             run();
         });
