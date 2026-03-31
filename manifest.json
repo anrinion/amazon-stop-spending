@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "ShoppingPad",
+  "version": "1.3",
+  "description": "Slows down impulse buying. Accumulate, consider, decide.",
+  "author": "anrinion",
+  "permissions": [],
+  "host_permissions": [
+    "https://www.amazon.com/*",
+    "https://www.amazon.de/*",
+    "https://www.amazon.co.uk/*",
+    "https://www.amazon.fr/*",
+    "https://www.amazon.it/*",
+    "https://www.amazon.es/*",
+    "https://www.amazon.ca/*",
+    "https://www.amazon.com.mx/*",
+    "https://www.amazon.com.br/*",
+    "https://www.amazon.in/*",
+    "https://www.amazon.co.jp/*",
+    "https://www.amazon.com.au/*",
+    "https://www.amazon.nl/*",
+    "https://www.amazon.pl/*",
+    "https://www.amazon.se/*",
+    "https://www.amazon.sa/*",
+    "https://www.amazon.eg/*",
+    "https://www.amazon.ae/*",
+    "https://www.amazon.tr/*",
+    "https://www.amazon.be/*",
+    "https://www.amazon.sg/*",
+    "https://www.amazon.co.za/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.amazon.com/*",
+        "https://www.amazon.de/*",
+        "https://www.amazon.co.uk/*",
+        "https://www.amazon.fr/*",
+        "https://www.amazon.it/*",
+        "https://www.amazon.es/*",
+        "https://www.amazon.ca/*",
+        "https://www.amazon.com.mx/*",
+        "https://www.amazon.com.br/*",
+        "https://www.amazon.in/*",
+        "https://www.amazon.co.jp/*",
+        "https://www.amazon.com.au/*",
+        "https://www.amazon.nl/*",
+        "https://www.amazon.pl/*",
+        "https://www.amazon.se/*",
+        "https://www.amazon.sa/*",
+        "https://www.amazon.eg/*",
+        "https://www.amazon.ae/*",
+        "https://www.amazon.tr/*",
+        "https://www.amazon.be/*",
+        "https://www.amazon.sg/*",
+        "https://www.amazon.co.za/*"
+      ],
+      "js": ["script.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

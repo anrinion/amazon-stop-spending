@@ -49,18 +49,13 @@
     };
 
     /* ---------- WEEK ---------- */
-    // Returns the ISO date of the current week's Monday (e.g., "2026-03-30")
     function getWeekKey() {
         const now = new Date();
         const day = now.getDay();
-
-        // Days back to Monday: Sun(0)->6, Mon(1)->0, Tue(2)->1, ..., Sat(6)->5
         const diff = (day + 6) % 7;
-
         const monday = new Date(now);
         monday.setDate(now.getDate() - diff);
         monday.setHours(0, 0, 0, 0);
-
         return monday.toISOString().split('T')[0];
     }
 
@@ -76,11 +71,8 @@
         }
     }
 
-    // Returns days until next Monday (1-7)
     function daysUntilMonday() {
         const day = new Date().getDay();
-        // (8 - day) % 7 results: Sun(0)->1, Mon(1)->0, ..., Sat(6)->2
-        // || 7 converts the 0 (Monday) to 7
         return (8 - day) % 7 || 7;
     }
 
@@ -137,14 +129,13 @@
         document.querySelectorAll('.ab-pill').forEach(btn => {
             btn.textContent = next === 'light' ? '☽ Dark' : '☀ Light';
         });
-        // Update any existing inputs to reflect new background
         document.querySelectorAll('.ab-add input').forEach(input => {
             input.style.backgroundColor = 'var(--input)';
         });
     }
 
-    /* ---------- CSS ---------- */
-    GM_addStyle(`
+    /* ---------- CSS INJECTION (unified) ---------- */
+    const cssText = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:400;500;600;700&display=swap');
 
 /* Hide body until overlay is ready – prevents flicker */
@@ -397,7 +388,19 @@ body.ab-hide-content {
     display: none;
     z-index: 999999;
 }
-`);
+`;
+
+    function injectCSS() {
+        if (typeof GM_addStyle !== 'undefined') {
+            // Tampermonkey environment
+            GM_addStyle(cssText);
+        } else {
+            // Chrome extension – attach to <html> (safe at document-start)
+            const style = document.createElement('style');
+            style.textContent = cssText;
+            document.documentElement.appendChild(style);
+        }
+    }
 
     /* ---------- SHARED CARD BUILDER ---------- */
     function buildCard(blocked, compact = false) {
@@ -460,7 +463,6 @@ body.ab-hide-content {
             }
         }
 
-        // For compact view, focus the input if present
         if (compact && inputElement) {
             setTimeout(() => inputElement.focus(), 0);
         }
@@ -469,7 +471,6 @@ body.ab-hide-content {
     }
 
     /* ---------- LIST BUILDER ---------- */
-    // Returns the input element so that it can be focused later
     function buildList(container, compact = false) {
         container.innerHTML = '';
         const list = getList();
@@ -533,7 +534,6 @@ ${checkboxHtml}
         const handleAdd = () => {
             if (addItem(input.value)) {
                 input.value = '';
-                // Rebuild the list, then focus the new input
                 const newInput = buildList(container, compact);
                 if (newInput) {
                     newInput.focus();
@@ -556,7 +556,7 @@ ${checkboxHtml}
         add.append(input, btn);
         container.appendChild(add);
 
-        return input; // Return input so caller can focus if needed
+        return input;
     }
 
     function escapeHtml(text) {
@@ -567,7 +567,6 @@ ${checkboxHtml}
 
     /* ---------- OVERLAY ---------- */
     function showOverlay(blocked) {
-        // Remove any existing overlay
         const existingOverlay = document.getElementById('ab-overlay');
         if (existingOverlay) {
             existingOverlay.remove();
@@ -577,15 +576,9 @@ ${checkboxHtml}
         o.id = 'ab-overlay';
         o.appendChild(buildCard(blocked, false));
 
-        // Hide body content before adding overlay (prevent flicker)
         document.body.classList.add('ab-hide-content');
-
         document.body.appendChild(o);
-
-        // Force a reflow to ensure overlay is rendered before showing body
         o.offsetHeight;
-
-        // Remove the hiding class after overlay is in place
         document.body.classList.remove('ab-hide-content');
     }
 
@@ -621,32 +614,31 @@ ${checkboxHtml}
         resetIfNewWeek();
         applyTheme();
 
-        // Check if there's an active session (not expired)
         if (isSessionActive()) {
-            // Session active: ensure widget exists and don't show overlay
             createWidget();
         } else if (isBlocked()) {
-            // No active session and limit reached: show blocked overlay
             showOverlay(true);
         } else {
-            // No active session and limit not reached: show regular overlay
             showOverlay(false);
         }
     }
 
-    // Apply hide-body style as early as possible to prevent flicker
-    const style = document.createElement('style');
-    style.textContent = `body { visibility: hidden !important; }`;
-    document.documentElement.appendChild(style);
+    // 1. Hide the page immediately (body will be hidden via CSS)
+    const styleHide = document.createElement('style');
+    styleHide.textContent = `body { visibility: hidden !important; }`;
+    document.documentElement.appendChild(styleHide);
 
-    // Wait for DOM ready to run the main logic and then remove the hiding style
+    // 2. Inject the full CSS (themes, layout) – unified
+    injectCSS();
+
+    // 3. Wait for DOM ready, then run the main logic
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
-            style.remove();
+            styleHide.remove();
             run();
         });
     } else {
-        style.remove();
+        styleHide.remove();
         run();
     }
 })();
