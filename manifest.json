@@ -4,7 +4,7 @@
   "version": "1.3",
   "description": "Slows down impulse buying. Accumulate, consider, decide.",
   "author": "anrinion",
-  "permissions": [],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://www.amazon.com/*",
     "https://www.amazon.de/*",

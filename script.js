@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ShoppingPad
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  Slows down impulse buying. Accumulate, consider, decide.
+// @version      2.0
+// @description  Slows down impulse buying. Accumulate, consider, decide. (Cross-domain)
 // @author       anrinion
 // @match        https://www.amazon.com/*
 // @match        https://www.amazon.de/*
@@ -26,6 +26,8 @@
 // @match        https://www.amazon.be/*
 // @match        https://www.amazon.sg/*
 // @match        https://www.amazon.co.za/*
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @grant        GM_addStyle
 // @run-at       document-start
 // @license      MIT 
@@ -38,7 +40,7 @@
     const DEFAULT_MAX_VISITS = 3;
     const SESSION_DURATION = 3600000; // 1 hour in milliseconds
 
-    /* ---------- STORAGE ---------- */
+    /* ---------- STORAGE KEYS ---------- */
     const SK = {
         COUNT: 'ab_visit_count',
         WEEK: 'ab_week_number',
@@ -47,6 +49,36 @@
         THEME: 'ab_theme',
         SESSION_START: 'ab_session_start'
     };
+
+    /* ---------- UNIFIED ASYNC STORAGE ---------- */
+    // Detect environment: Tampermonkey has GM_getValue, Chrome extension doesn't.
+    const isTampermonkey = typeof GM_getValue !== 'undefined';
+
+    async function storageGet(key, defaultValue) {
+        if (isTampermonkey) {
+            // GM_getValue is synchronous, but we wrap in Promise for consistency.
+            const value = GM_getValue(key, defaultValue);
+            return value;
+        } else {
+            // Chrome extension: use chrome.storage.local
+            return new Promise((resolve) => {
+                chrome.storage.local.get([key], (result) => {
+                    resolve(result[key] !== undefined ? result[key] : defaultValue);
+                });
+            });
+        }
+    }
+
+    async function storageSet(key, value) {
+        if (isTampermonkey) {
+            GM_setValue(key, value);
+            return Promise.resolve();
+        } else {
+            return new Promise((resolve) => {
+                chrome.storage.local.set({ [key]: value }, resolve);
+            });
+        }
+    }
 
     /* ---------- WEEK ---------- */
     function getWeekKey() {
@@ -59,12 +91,13 @@
         return monday.toISOString().split('T')[0];
     }
 
-    function resetIfNewWeek() {
+    async function resetIfNewWeek() {
         try {
             const cur = getWeekKey();
-            if (localStorage.getItem(SK.WEEK) !== cur) {
-                localStorage.setItem(SK.COUNT, '0');
-                localStorage.setItem(SK.WEEK, cur);
+            const storedWeek = await storageGet(SK.WEEK, '');
+            if (storedWeek !== cur) {
+                await storageSet(SK.COUNT, '0');
+                await storageSet(SK.WEEK, cur);
             }
         } catch (e) {
             console.error('Storage error', e);
@@ -77,55 +110,85 @@
     }
 
     /* ---------- STATE ---------- */
-    const getMax = () => parseInt(localStorage.getItem(SK.MAX) || DEFAULT_MAX_VISITS, 10);
-    const setMax = n => localStorage.setItem(SK.MAX, n);
-    const getCount = () => parseInt(localStorage.getItem(SK.COUNT) || '0', 10);
-    const getRemaining = () => Math.max(0, getMax() - getCount());
-    const isBlocked = () => getRemaining() === 0;
-    const consume = () => localStorage.setItem(SK.COUNT, getCount() + 1);
+    async function getMax() {
+        const val = await storageGet(SK.MAX, DEFAULT_MAX_VISITS);
+        return parseInt(val, 10);
+    }
+    async function setMax(n) {
+        await storageSet(SK.MAX, n);
+    }
+    async function getCount() {
+        const val = await storageGet(SK.COUNT, '0');
+        return parseInt(val, 10);
+    }
+    async function getRemaining() {
+        const max = await getMax();
+        const count = await getCount();
+        return Math.max(0, max - count);
+    }
+    async function isBlocked() {
+        return (await getRemaining()) === 0;
+    }
+    async function consume() {
+        const count = await getCount();
+        await storageSet(SK.COUNT, count + 1);
+    }
 
     /* ---------- SESSION ---------- */
-    function startSession() {
-        localStorage.setItem(SK.SESSION_START, Date.now().toString());
+    async function startSession() {
+        await storageSet(SK.SESSION_START, Date.now().toString());
     }
-    function isSessionActive() {
-        const start = localStorage.getItem(SK.SESSION_START);
+    async function isSessionActive() {
+        const start = await storageGet(SK.SESSION_START, null);
         if (!start) return false;
         const now = Date.now();
         return (now - parseInt(start, 10)) < SESSION_DURATION;
     }
 
     /* ---------- LIST ---------- */
-    const getList = () => JSON.parse(localStorage.getItem(SK.LIST) || '[]');
-    const saveList = l => localStorage.setItem(SK.LIST, JSON.stringify(l));
-    function addItem(text) {
+    async function getList() {
+        const list = await storageGet(SK.LIST, '[]');
+        return JSON.parse(list);
+    }
+    async function saveList(l) {
+        await storageSet(SK.LIST, JSON.stringify(l));
+    }
+    async function addItem(text) {
         if (!text.trim()) return false;
-        const l = getList();
+        const l = await getList();
         l.push({ text: text.trim(), added: new Date().toISOString(), checked: false });
-        saveList(l);
+        await saveList(l);
         return true;
     }
-    function removeItem(i) {
-        const l = getList(); l.splice(i, 1); saveList(l);
+    async function removeItem(i) {
+        const l = await getList();
+        l.splice(i, 1);
+        await saveList(l);
     }
-    function toggleItemCheck(i) {
-        const l = getList();
+    async function toggleItemCheck(i) {
+        const l = await getList();
         l[i].checked = !l[i].checked;
-        saveList(l);
+        await saveList(l);
     }
     const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 
     /* ---------- THEME ---------- */
-    const getTheme = () => localStorage.getItem(SK.THEME) || 'light';
-    const setTheme = t => localStorage.setItem(SK.THEME, t);
-    function applyTheme() {
-        document.documentElement.setAttribute('data-ab-theme', getTheme());
+    async function getTheme() {
+        return await storageGet(SK.THEME, 'light');
     }
-
-    function toggleTheme() {
-        const next = getTheme() === 'light' ? 'dark' : 'light';
-        setTheme(next);
-        applyTheme();
+    async function setTheme(t) {
+        await storageSet(SK.THEME, t);
+    }
+    async function applyTheme() {
+        const theme = await getTheme();
+        document.documentElement.setAttribute('data-ab-theme', theme);
+    }
+    async function toggleTheme() {
+        const current = await getTheme();
+        const next = current === 'light' ? 'dark' : 'light';
+        await setTheme(next);
+        await applyTheme();
+        // Update existing UI elements (if any)
         document.querySelectorAll('.ab-pill').forEach(btn => {
             btn.textContent = next === 'light' ? '☽ Dark' : '☀ Light';
         });
@@ -134,7 +197,7 @@
         });
     }
 
-    /* ---------- CSS INJECTION (unified) ---------- */
+    /* ---------- CSS INJECTION ---------- */
     const cssText = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:400;500;600;700&display=swap');
 
@@ -392,18 +455,20 @@ body.ab-hide-content {
 
     function injectCSS() {
         if (typeof GM_addStyle !== 'undefined') {
-            // Tampermonkey environment
             GM_addStyle(cssText);
         } else {
-            // Chrome extension – attach to <html> (safe at document-start)
             const style = document.createElement('style');
             style.textContent = cssText;
             document.documentElement.appendChild(style);
         }
     }
 
-    /* ---------- SHARED CARD BUILDER ---------- */
-    function buildCard(blocked, compact = false) {
+    /* ---------- SHARED CARD BUILDER (ASYNC) ---------- */
+    async function buildCard(blocked, compact = false) {
+        const theme = await getTheme();
+        const max = await getMax();
+        const remaining = await getRemaining();
+
         const card = document.createElement('div');
         card.className = 'ab-card';
 
@@ -411,7 +476,7 @@ body.ab-hide-content {
         top.className = 'ab-top';
         top.innerHTML = `
 <span class="ab-word">ShoppingPad</span>
-<button class="ab-pill">${getTheme() === 'light' ? '☽ Dark' : '☀ Light'}</button>
+<button class="ab-pill">${theme === 'light' ? '☽ Dark' : '☀ Light'}</button>
 `;
 
         const body = document.createElement('div');
@@ -425,12 +490,12 @@ body.ab-hide-content {
         </div>
         <div class="ab-sub">
         ${blocked
-                    ? `You've used your ${getMax()} shopping sessions this week. You can still put things down here and buy them when your sessions reset.`
-                    : `You have ${getRemaining()} sessions left this week. You can browse now, or just leave items on the pad to buy everything at once later.`}
+                    ? `You've used your ${max} shopping sessions this week. You can still put things down here and buy them when your sessions reset.`
+                    : `You have ${remaining} sessions left this week. You can browse now, or just leave items on the pad to buy everything at once later.`}
         </div>
         <div class="ab-chip">
         <span>${blocked ? 'Resets in' : 'Sessions left'}</span>
-        <b>${blocked ? daysUntilMonday() + ' days' : getRemaining() + ' of ' + getMax()}</b>
+        <b>${blocked ? daysUntilMonday() + ' days' : remaining + ' of ' + max}</b>
         </div>
         ${!blocked ? '<button class="ab-btn">Start 1-hour session</button>' : ''}
         <div class="ab-sec">Your pad</div>
@@ -440,25 +505,27 @@ body.ab-hide-content {
         }
 
         const listWrap = document.createElement('div');
-        const inputElement = buildList(listWrap, compact);
+        const inputElement = await buildList(listWrap, compact);
         body.appendChild(listWrap);
 
         card.append(top, body);
 
         const themeBtn = top.querySelector('button');
-        themeBtn.onclick = (e) => {
+        themeBtn.onclick = async (e) => {
             e.preventDefault();
-            toggleTheme();
+            await toggleTheme();
+            // The card might be regenerated, but for simplicity we just update the text.
+            // For now, we rely on the global update in toggleTheme.
         };
 
         if (!blocked && !compact) {
             const startBtn = body.querySelector('.ab-btn');
             if (startBtn) {
-                startBtn.onclick = () => {
-                    consume();
-                    startSession();
+                startBtn.onclick = async () => {
+                    await consume();
+                    await startSession();
                     document.getElementById('ab-overlay')?.remove();
-                    createWidget();
+                    await createWidget();
                 };
             }
         }
@@ -470,10 +537,10 @@ body.ab-hide-content {
         return card;
     }
 
-    /* ---------- LIST BUILDER ---------- */
-    function buildList(container, compact = false) {
+    /* ---------- LIST BUILDER (ASYNC) ---------- */
+    async function buildList(container, compact = false) {
         container.innerHTML = '';
-        const list = getList();
+        const list = await getList();
 
         const wrap = document.createElement('div');
         wrap.className = 'ab-list';
@@ -481,7 +548,8 @@ body.ab-hide-content {
         if (!list.length) {
             wrap.innerHTML = '<div style="text-align:center;color:var(--text-lo);padding:10px;border:1px dashed var(--border);border-radius:10px">Nothing here yet.</div>';
         } else {
-            list.forEach((item, i) => {
+            for (let i = 0; i < list.length; i++) {
+                const item = list[i];
                 const row = document.createElement('div');
                 row.className = 'ab-item';
 
@@ -503,19 +571,19 @@ ${checkboxHtml}
 
                 if (compact) {
                     const cb = row.querySelector('.ab-checkbox');
-                    cb.addEventListener('change', () => {
-                        toggleItemCheck(i);
+                    cb.addEventListener('change', async () => {
+                        await toggleItemCheck(i);
                         if (cb.checked) row.classList.add('checked');
                         else row.classList.remove('checked');
                     });
                 }
 
-                row.querySelector('button').onclick = () => {
-                    removeItem(i);
-                    buildList(container, compact);
+                row.querySelector('button').onclick = async () => {
+                    await removeItem(i);
+                    await buildList(container, compact);
                 };
                 wrap.appendChild(row);
-            });
+            }
         }
 
         container.appendChild(wrap);
@@ -531,10 +599,10 @@ ${checkboxHtml}
         const btn = document.createElement('button');
         btn.textContent = 'Add';
 
-        const handleAdd = () => {
-            if (addItem(input.value)) {
+        const handleAdd = async () => {
+            if (await addItem(input.value)) {
                 input.value = '';
-                const newInput = buildList(container, compact);
+                const newInput = await buildList(container, compact);
                 if (newInput) {
                     newInput.focus();
                 }
@@ -565,8 +633,8 @@ ${checkboxHtml}
         return div.innerHTML;
     }
 
-    /* ---------- OVERLAY ---------- */
-    function showOverlay(blocked) {
+    /* ---------- OVERLAY (ASYNC) ---------- */
+    async function showOverlay(blocked) {
         const existingOverlay = document.getElementById('ab-overlay');
         if (existingOverlay) {
             existingOverlay.remove();
@@ -574,7 +642,8 @@ ${checkboxHtml}
 
         const o = document.createElement('div');
         o.id = 'ab-overlay';
-        o.appendChild(buildCard(blocked, false));
+        const card = await buildCard(blocked, false);
+        o.appendChild(card);
 
         document.body.classList.add('ab-hide-content');
         document.body.appendChild(o);
@@ -582,15 +651,15 @@ ${checkboxHtml}
         document.body.classList.remove('ab-hide-content');
     }
 
-    /* ---------- WIDGET ---------- */
+    /* ---------- WIDGET (ASYNC) ---------- */
     let panel;
 
-    function createWidget() {
+    async function createWidget() {
         if (document.getElementById('ab-widget-icon')) return;
 
         const icon = document.createElement('div');
         icon.id = 'ab-widget-icon';
-        icon.textContent = '⊟';
+        icon.textContent = '';
         icon.onclick = togglePanel;
 
         panel = document.createElement('div');
@@ -599,46 +668,50 @@ ${checkboxHtml}
         document.body.append(icon, panel);
     }
 
-    function togglePanel() {
+    async function togglePanel() {
         if (panel.style.display === 'block') {
             panel.style.display = 'none';
         } else {
             panel.innerHTML = '';
-            panel.appendChild(buildCard(false, true));
+            const card = await buildCard(false, true);
+            panel.appendChild(card);
             panel.style.display = 'block';
         }
     }
 
-    /* ---------- INIT ---------- */
-    function run() {
-        resetIfNewWeek();
-        applyTheme();
+    /* ---------- INIT (ASYNC) ---------- */
+    async function run() {
+        await resetIfNewWeek();
+        await applyTheme();
 
-        if (isSessionActive()) {
-            createWidget();
-        } else if (isBlocked()) {
-            showOverlay(true);
+        const active = await isSessionActive();
+        const blocked = await isBlocked();
+
+        if (active) {
+            await createWidget();
+        } else if (blocked) {
+            await showOverlay(true);
         } else {
-            showOverlay(false);
+            await showOverlay(false);
         }
     }
 
-    // 1. Hide the page immediately (body will be hidden via CSS)
+    // 1. Hide the page immediately
     const styleHide = document.createElement('style');
     styleHide.textContent = `body { visibility: hidden !important; }`;
     document.documentElement.appendChild(styleHide);
 
-    // 2. Inject the full CSS (themes, layout) – unified
+    // 2. Inject CSS
     injectCSS();
 
-    // 3. Wait for DOM ready, then run the main logic
+    // 3. Wait for DOM ready, then run async init
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             styleHide.remove();
-            run();
+            run().catch(console.error);
         });
     } else {
         styleHide.remove();
-        run();
+        run().catch(console.error);
     }
 })();
