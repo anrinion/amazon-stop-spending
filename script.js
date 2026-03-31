@@ -634,84 +634,89 @@ ${checkboxHtml}
     }
 
     /* ---------- OVERLAY (ASYNC) ---------- */
-    async function showOverlay(blocked) {
-        const existingOverlay = document.getElementById('ab-overlay');
-        if (existingOverlay) {
-            existingOverlay.remove();
-        }
-
-        const o = document.createElement('div');
-        o.id = 'ab-overlay';
-        const card = await buildCard(blocked, false);
-        o.appendChild(card);
-
-        document.body.classList.add('ab-hide-content');
-        document.body.appendChild(o);
-        o.offsetHeight;
-        document.body.classList.remove('ab-hide-content');
+async function showOverlay(blocked) {
+    const existingOverlay = document.getElementById('ab-overlay');
+    if (existingOverlay) {
+        existingOverlay.remove();
     }
 
-    /* ---------- WIDGET (ASYNC) ---------- */
-    let panel;
+    const o = document.createElement('div');
+    o.id = 'ab-overlay';
+    const card = await buildCard(blocked, false);
+    o.appendChild(card);
+    document.body.appendChild(o);
+}
 
-    async function createWidget() {
-        if (document.getElementById('ab-widget-icon')) return;
+/* ---------- WIDGET (ASYNC) ---------- */
+let panel;
 
-        const icon = document.createElement('div');
-        icon.id = 'ab-widget-icon';
-        icon.textContent = '';
-        icon.onclick = togglePanel;
+async function createWidget() {
+    if (document.getElementById('ab-widget-icon')) return;
 
-        panel = document.createElement('div');
-        panel.id = 'ab-widget-panel';
+    const icon = document.createElement('div');
+    icon.id = 'ab-widget-icon';
+    icon.textContent = '⊟';
+    icon.onclick = togglePanel;
 
-        document.body.append(icon, panel);
-    }
+    panel = document.createElement('div');
+    panel.id = 'ab-widget-panel';
 
-    async function togglePanel() {
-        if (panel.style.display === 'block') {
-            panel.style.display = 'none';
-        } else {
-            panel.innerHTML = '';
-            const card = await buildCard(false, true);
-            panel.appendChild(card);
-            panel.style.display = 'block';
-        }
-    }
+    document.body.append(icon, panel);
+}
 
-    /* ---------- INIT (ASYNC) ---------- */
-    async function run() {
-        await resetIfNewWeek();
-        await applyTheme();
-
-        const active = await isSessionActive();
-        const blocked = await isBlocked();
-
-        if (active) {
-            await createWidget();
-        } else if (blocked) {
-            await showOverlay(true);
-        } else {
-            await showOverlay(false);
-        }
-    }
-
-    // 1. Hide the page immediately
-    const styleHide = document.createElement('style');
-    styleHide.textContent = `body { visibility: hidden !important; }`;
-    document.documentElement.appendChild(styleHide);
-
-    // 2. Inject CSS
-    injectCSS();
-
-    // 3. Wait for DOM ready, then run async init
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            styleHide.remove();
-            run().catch(console.error);
-        });
+async function togglePanel() {
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
     } else {
-        styleHide.remove();
-        run().catch(console.error);
+        panel.innerHTML = '';
+        const card = await buildCard(false, true);
+        panel.appendChild(card);
+        panel.style.display = 'block';
     }
+}
+
+/* ---------- INIT (ASYNC) ---------- */
+async function run() {
+    await resetIfNewWeek();
+    await applyTheme();
+
+    const active = await isSessionActive();
+    const blocked = await isBlocked();
+
+    if (active) {
+        await createWidget();
+    } else if (blocked) {
+        await showOverlay(true);
+    } else {
+        await showOverlay(false);
+    }
+}
+
+// 1. Hide the page immediately (style will be removed after UI is ready)
+const styleHide = document.createElement('style');
+styleHide.textContent = `body { visibility: hidden !important; }`;
+document.documentElement.appendChild(styleHide);
+
+// 2. Inject CSS
+injectCSS();
+
+// 3. Wait for DOM ready, then run async init and finally reveal the page
+async function initAndReveal() {
+    try {
+        await run();               // this adds overlay or widget (async)
+    } catch (err) {
+        console.error('ShoppingPad init error:', err);
+    } finally {
+        // Now the UI is in place – remove the global hiding style
+        styleHide.remove();
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        initAndReveal();
+    });
+} else {
+    initAndReveal();
+}
 })();
