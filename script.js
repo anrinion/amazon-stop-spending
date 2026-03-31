@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ShoppingPad
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Slows down impulse buying. Accumulate, consider, decide. (Cross-domain)
+// @version      1.0
+// @description  Slows down impulse buying. Accumulate, consider, decide.
 // @author       anrinion
 // @match        https://www.amazon.com/*
 // @match        https://www.amazon.de/*
@@ -30,7 +30,7 @@
 // @grant        GM_setValue
 // @grant        GM_addStyle
 // @run-at       document-start
-// @license      MIT 
+// @license      MIT
 // ==/UserScript==
 
 (function () {
@@ -38,7 +38,7 @@
 
     /* ---------- CONFIG ---------- */
     const DEFAULT_MAX_VISITS = 3;
-    const SESSION_DURATION = 3600000; // 1 hour in milliseconds
+    const DEFAULT_SESSION_DURATION_MS = 3600000; // 1 hour
 
     /* ---------- STORAGE KEYS ---------- */
     const SK = {
@@ -47,20 +47,18 @@
         LIST: 'ab_shopping_list',
         MAX: 'ab_max_visits',
         THEME: 'ab_theme',
-        SESSION_START: 'ab_session_start'
+        SESSION_START: 'ab_session_start',
+        SESSION_DURATION: 'ab_session_duration_ms'
     };
 
     /* ---------- UNIFIED ASYNC STORAGE ---------- */
-    // Detect environment: Tampermonkey has GM_getValue, Chrome extension doesn't.
     const isTampermonkey = typeof GM_getValue !== 'undefined';
 
     async function storageGet(key, defaultValue) {
         if (isTampermonkey) {
-            // GM_getValue is synchronous, but we wrap in Promise for consistency.
             const value = GM_getValue(key, defaultValue);
             return value;
         } else {
-            // Chrome extension: use chrome.storage.local
             return new Promise((resolve) => {
                 chrome.storage.local.get([key], (result) => {
                     resolve(result[key] !== undefined ? result[key] : defaultValue);
@@ -109,7 +107,7 @@
         return (8 - day) % 7 || 7;
     }
 
-    /* ---------- STATE ---------- */
+    /* ---------- SESSION SETTINGS ---------- */
     async function getMax() {
         const val = await storageGet(SK.MAX, DEFAULT_MAX_VISITS);
         return parseInt(val, 10);
@@ -117,6 +115,15 @@
     async function setMax(n) {
         await storageSet(SK.MAX, n);
     }
+
+    async function getSessionDuration() {
+        const val = await storageGet(SK.SESSION_DURATION, DEFAULT_SESSION_DURATION_MS);
+        return parseInt(val, 10);
+    }
+    async function setSessionDuration(durationMs) {
+        await storageSet(SK.SESSION_DURATION, durationMs);
+    }
+
     async function getCount() {
         const val = await storageGet(SK.COUNT, '0');
         return parseInt(val, 10);
@@ -141,8 +148,9 @@
     async function isSessionActive() {
         const start = await storageGet(SK.SESSION_START, null);
         if (!start) return false;
+        const duration = await getSessionDuration();
         const now = Date.now();
-        return (now - parseInt(start, 10)) < SESSION_DURATION;
+        return (now - parseInt(start, 10)) < duration;
     }
 
     /* ---------- LIST ---------- */
@@ -188,9 +196,9 @@
         const next = current === 'light' ? 'dark' : 'light';
         await setTheme(next);
         await applyTheme();
-        // Update existing UI elements (if any)
+        // Update existing UI elements
         document.querySelectorAll('.ab-pill').forEach(btn => {
-            btn.textContent = next === 'light' ? '☽ Dark' : '☀ Light';
+            if (btn.id === 'ab-theme-btn') btn.textContent = next === 'light' ? '☽ Dark' : '☀ Light';
         });
         document.querySelectorAll('.ab-add input').forEach(input => {
             input.style.backgroundColor = 'var(--input)';
@@ -278,6 +286,12 @@ body.ab-hide-content {
     cursor: pointer;
     background: var(--surface);
     color: var(--text-mid);
+}
+
+.ab-pill:hover {
+    background: var(--surface);
+    border-color: var(--text-lo);
+    color: var(--text-hi);
 }
 
 .ab-body {
@@ -451,6 +465,85 @@ body.ab-hide-content {
     display: none;
     z-index: 999999;
 }
+
+/* Settings Modal */
+#ab-settings-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000000;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Inter, system-ui;
+}
+
+.ab-modal-card {
+    background: var(--surface);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    width: 320px;
+    padding: 24px;
+}
+
+.ab-modal-card h3 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    color: var(--text-hi);
+}
+
+.ab-modal-field {
+    margin-bottom: 16px;
+}
+
+.ab-modal-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--text-mid);
+}
+
+.ab-modal-field input {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--input);
+    color: var(--text-hi);
+    font-family: inherit;
+}
+
+.ab-modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+.ab-modal-actions button {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    cursor: pointer;
+    color: var(--text-hi);
+}
+
+.ab-modal-actions button:first-child {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.ab-modal-actions button:first-child:hover {
+    background: var(--accent);
+    filter: brightness(0.9);
+}
+
+.ab-modal-actions button:hover {
+    background: var(--surface);
+}
 `;
 
     function injectCSS() {
@@ -475,31 +568,34 @@ body.ab-hide-content {
         const top = document.createElement('div');
         top.className = 'ab-top';
         top.innerHTML = `
-<span class="ab-word">ShoppingPad</span>
-<button class="ab-pill">${theme === 'light' ? '☽ Dark' : '☀ Light'}</button>
-`;
+            <span class="ab-word">ShoppingPad</span>
+            <div style="display: flex; gap: 8px;">
+                <button class="ab-pill" id="ab-theme-btn">${theme === 'light' ? '☽ Dark' : '☀ Light'}</button>
+                <button class="ab-pill" id="ab-settings-btn">⚙️</button>
+            </div>
+        `;
 
         const body = document.createElement('div');
         body.className = 'ab-body';
 
         if (!compact) {
             body.innerHTML += `
-        <div class="ab-eyebrow">${blocked ? 'Access restricted' : 'Checkpoint'}</div>
-        <div class="ab-heading ${blocked ? 'blocked' : ''}">
-        ${blocked ? 'Done for the week.' : 'Start a shopping session?'}
-        </div>
-        <div class="ab-sub">
-        ${blocked
+                <div class="ab-eyebrow">${blocked ? 'Access restricted' : 'Checkpoint'}</div>
+                <div class="ab-heading ${blocked ? 'blocked' : ''}">
+                ${blocked ? 'Done for the week.' : 'Start a shopping session?'}
+                </div>
+                <div class="ab-sub">
+                ${blocked
                     ? `You've used your ${max} shopping sessions this week. You can still put things down here and buy them when your sessions reset.`
                     : `You have ${remaining} sessions left this week. You can browse now, or just leave items on the pad to buy everything at once later.`}
-        </div>
-        <div class="ab-chip">
-        <span>${blocked ? 'Resets in' : 'Sessions left'}</span>
-        <b>${blocked ? daysUntilMonday() + ' days' : remaining + ' of ' + max}</b>
-        </div>
-        ${!blocked ? '<button class="ab-btn">Start 1-hour session</button>' : ''}
-        <div class="ab-sec">Your pad</div>
-        `;
+                </div>
+                <div class="ab-chip">
+                <span>${blocked ? 'Resets in' : 'Sessions left'}</span>
+                <b>${blocked ? daysUntilMonday() + ' days' : remaining + ' of ' + max}</b>
+                </div>
+                ${!blocked ? '<button class="ab-btn">Start shopping session</button>' : ''}
+                <div class="ab-sec">Your pad</div>
+            `;
         } else {
             body.innerHTML += `<div class="ab-sec">Shopping list</div>`;
         }
@@ -510,13 +606,23 @@ body.ab-hide-content {
 
         card.append(top, body);
 
-        const themeBtn = top.querySelector('button');
-        themeBtn.onclick = async (e) => {
-            e.preventDefault();
-            await toggleTheme();
-            // The card might be regenerated, but for simplicity we just update the text.
-            // For now, we rely on the global update in toggleTheme.
-        };
+        // Theme button
+        const themeBtn = top.querySelector('#ab-theme-btn');
+        if (themeBtn) {
+            themeBtn.onclick = async (e) => {
+                e.preventDefault();
+                await toggleTheme();
+            };
+        }
+
+        // Settings button
+        const settingsBtn = top.querySelector('#ab-settings-btn');
+        if (settingsBtn) {
+            settingsBtn.onclick = (e) => {
+                e.preventDefault();
+                showSettingsModal();
+            };
+        }
 
         if (!blocked && !compact) {
             const startBtn = body.querySelector('.ab-btn');
@@ -524,8 +630,7 @@ body.ab-hide-content {
                 startBtn.onclick = async () => {
                     await consume();
                     await startSession();
-                    document.getElementById('ab-overlay')?.remove();
-                    await createWidget();
+                    await refreshUI(); // Refresh the UI after starting session
                 };
             }
         }
@@ -535,6 +640,61 @@ body.ab-hide-content {
         }
 
         return card;
+    }
+
+    /* ---------- SETTINGS MODAL ---------- */
+    async function showSettingsModal() {
+        // Remove existing modal if any
+        const existing = document.getElementById('ab-settings-modal');
+        if (existing) existing.remove();
+
+        const max = await getMax();
+        const durationMs = await getSessionDuration();
+        const durationMin = Math.round(durationMs / 60000);
+
+        const modal = document.createElement('div');
+        modal.id = 'ab-settings-modal';
+        modal.innerHTML = `
+            <div class="ab-modal-card">
+                <h3>Settings</h3>
+                <div class="ab-modal-field">
+                    <label>Max sessions per week</label>
+                    <input type="number" id="ab-max-sessions" min="1" value="${max}" step="1">
+                </div>
+                <div class="ab-modal-field">
+                    <label>Session length (minutes)</label>
+                    <input type="number" id="ab-session-length" min="1" value="${durationMin}" step="1">
+                </div>
+                <div class="ab-modal-actions">
+                    <button id="ab-save-settings">Save</button>
+                    <button id="ab-cancel-settings">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        const saveBtn = modal.querySelector('#ab-save-settings');
+        const cancelBtn = modal.querySelector('#ab-cancel-settings');
+
+        saveBtn.onclick = async () => {
+            const newMax = parseInt(modal.querySelector('#ab-max-sessions').value, 10);
+            const newLengthMin = parseInt(modal.querySelector('#ab-session-length').value, 10);
+            const newDurationMs = newLengthMin * 60000;
+
+            if (isNaN(newMax) || newMax < 1) return;
+            if (isNaN(newLengthMin) || newLengthMin < 1) return;
+
+            await setMax(newMax);
+            await setSessionDuration(newDurationMs);
+
+            modal.remove();
+            await refreshUI();
+        };
+
+        cancelBtn.onclick = () => {
+            modal.remove();
+        };
     }
 
     /* ---------- LIST BUILDER (ASYNC) ---------- */
@@ -634,89 +794,103 @@ ${checkboxHtml}
     }
 
     /* ---------- OVERLAY (ASYNC) ---------- */
-async function showOverlay(blocked) {
-    const existingOverlay = document.getElementById('ab-overlay');
-    if (existingOverlay) {
-        existingOverlay.remove();
+    async function showOverlay(blocked) {
+        const existingOverlay = document.getElementById('ab-overlay');
+        if (existingOverlay) {
+            existingOverlay.remove();
+        }
+
+        const o = document.createElement('div');
+        o.id = 'ab-overlay';
+        const card = await buildCard(blocked, false);
+        o.appendChild(card);
+        document.body.appendChild(o);
     }
 
-    const o = document.createElement('div');
-    o.id = 'ab-overlay';
-    const card = await buildCard(blocked, false);
-    o.appendChild(card);
-    document.body.appendChild(o);
-}
+    /* ---------- WIDGET (ASYNC) ---------- */
+    let panel;
 
-/* ---------- WIDGET (ASYNC) ---------- */
-let panel;
+    async function createWidget() {
+        if (document.getElementById('ab-widget-icon')) return;
 
-async function createWidget() {
-    if (document.getElementById('ab-widget-icon')) return;
+        const icon = document.createElement('div');
+        icon.id = 'ab-widget-icon';
+        icon.textContent = '⊟';
+        icon.onclick = togglePanel;
 
-    const icon = document.createElement('div');
-    icon.id = 'ab-widget-icon';
-    icon.textContent = '⊟';
-    icon.onclick = togglePanel;
+        panel = document.createElement('div');
+        panel.id = 'ab-widget-panel';
 
-    panel = document.createElement('div');
-    panel.id = 'ab-widget-panel';
+        document.body.append(icon, panel);
+    }
 
-    document.body.append(icon, panel);
-}
+    async function togglePanel() {
+        if (panel.style.display === 'block') {
+            panel.style.display = 'none';
+        } else {
+            panel.innerHTML = '';
+            const card = await buildCard(false, true);
+            panel.appendChild(card);
+            panel.style.display = 'block';
+        }
+    }
 
-async function togglePanel() {
-    if (panel.style.display === 'block') {
-        panel.style.display = 'none';
+    /* ---------- REFRESH UI ---------- */
+    async function refreshUI() {
+        // Remove existing overlay and widget
+        const overlay = document.getElementById('ab-overlay');
+        if (overlay) overlay.remove();
+        const icon = document.getElementById('ab-widget-icon');
+        if (icon) icon.remove();
+        const panelDiv = document.getElementById('ab-widget-panel');
+        if (panelDiv) panelDiv.remove();
+
+        // Re-run the main logic
+        await run();
+    }
+
+    /* ---------- INIT (ASYNC) ---------- */
+    async function run() {
+        await resetIfNewWeek();
+        await applyTheme();
+
+        const active = await isSessionActive();
+        const blocked = await isBlocked();
+
+        if (active) {
+            await createWidget();
+        } else if (blocked) {
+            await showOverlay(true);
+        } else {
+            await showOverlay(false);
+        }
+    }
+
+    // 1. Hide the page immediately (style will be removed after UI is ready)
+    const styleHide = document.createElement('style');
+    styleHide.textContent = `body { visibility: hidden !important; }`;
+    document.documentElement.appendChild(styleHide);
+
+    // 2. Inject CSS
+    injectCSS();
+
+    // 3. Wait for DOM ready, then run async init and finally reveal the page
+    async function initAndReveal() {
+        try {
+            await run();               // this adds overlay or widget (async)
+        } catch (err) {
+            console.error('ShoppingPad init error:', err);
+        } finally {
+            // Now the UI is in place – remove the global hiding style
+            styleHide.remove();
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            initAndReveal();
+        });
     } else {
-        panel.innerHTML = '';
-        const card = await buildCard(false, true);
-        panel.appendChild(card);
-        panel.style.display = 'block';
-    }
-}
-
-/* ---------- INIT (ASYNC) ---------- */
-async function run() {
-    await resetIfNewWeek();
-    await applyTheme();
-
-    const active = await isSessionActive();
-    const blocked = await isBlocked();
-
-    if (active) {
-        await createWidget();
-    } else if (blocked) {
-        await showOverlay(true);
-    } else {
-        await showOverlay(false);
-    }
-}
-
-// 1. Hide the page immediately (style will be removed after UI is ready)
-const styleHide = document.createElement('style');
-styleHide.textContent = `body { visibility: hidden !important; }`;
-document.documentElement.appendChild(styleHide);
-
-// 2. Inject CSS
-injectCSS();
-
-// 3. Wait for DOM ready, then run async init and finally reveal the page
-async function initAndReveal() {
-    try {
-        await run();               // this adds overlay or widget (async)
-    } catch (err) {
-        console.error('ShoppingPad init error:', err);
-    } finally {
-        // Now the UI is in place – remove the global hiding style
-        styleHide.remove();
-    }
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
         initAndReveal();
-    });
-} else {
-    initAndReveal();
-}
+    }
 })();
