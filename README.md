@@ -14,6 +14,12 @@ A simple notepad overlay for shopping sites. Instead of buying items one by one 
 
 ## Installation
 
+### As a plugin
+
+- [Chrome Web Store](https://chromewebstore.google.com/detail/shoppingpad-for-amazon/fgfdkmckgeiabncibdhipaiekfkdfknj) 
+
+## As a script
+
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) extension for your browser.
 2. Install the script from [GreasyFork](https://greasyfork.org/en/scripts/571851-shoppingpad).
 
